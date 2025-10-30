@@ -4,24 +4,17 @@ import time
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
 
-# Get Telegram Bot Token from Railway Environment Variables
-BOT_TOKEN = os.getenv("8321057096:AAHClJi3S-hmrQXhGdRRJgm7cyYUHUDBc2I")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+SHEET_URL = "https://opensheet.elk.sh/YOUR_SHEET_ID/Sheet1"  # Replace with your link
 
-# Google Sheet JSON URL (use your own)
-SHEET_URL = "https://opensheet.elk.sh/1LXevFkVfBGzLrBttaMPyQ-6voypCyYogQmE58JNn8w0/Sheet1"
-
-# Cache system to reduce repeated Google calls
 cached_data = None
 last_fetch_time = 0
-CACHE_DURATION = 300  # seconds (5 min)
+CACHE_DURATION = 300  # 5 minutes
 
-
-# 🧩 Function to fetch data from Google Sheets
 def get_sheet_data(force_refresh=False):
     global cached_data, last_fetch_time
     current_time = time.time()
 
-    # If cache is still valid and not forced to refresh
     if not force_refresh and cached_data and current_time - last_fetch_time < CACHE_DURATION:
         return cached_data
 
@@ -30,37 +23,28 @@ def get_sheet_data(force_refresh=False):
         if response.status_code == 200:
             cached_data = response.json()
             last_fetch_time = current_time
-            print("✅ Data fetched successfully from Google Sheet.")
+            print("✅ Data fetched successfully.")
             return cached_data
         else:
-            print(f"⚠️ Failed to fetch data: {response.status_code}")
+            print(f"⚠️ Error: {response.status_code}")
             return cached_data or []
     except Exception as e:
-        print("⚠️ Error fetching data:", e)
+        print("⚠️ Error:", e)
         return cached_data or []
 
-
-# 🟢 /start Command — Show dynamic list of Boards
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = get_sheet_data()
     boards = sorted({row["Board"] for row in data if row.get("Board")})
 
     if not boards:
-        await update.message.reply_text("⚠️ No Boards found in the Sheet.")
+        await update.message.reply_text("⚠️ No Boards found.")
         return
 
-    keyboard = [
-        [InlineKeyboardButton(board, callback_data=board)] for board in boards
-    ]
+    keyboard = [[InlineKeyboardButton(board, callback_data=board)] for board in boards]
     keyboard.append([InlineKeyboardButton("🔁 Refresh Data", callback_data="refresh")])
 
-    await update.message.reply_text(
-        "📚 Select your Board 👇",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+    await update.message.reply_text("📚 Select your Board 👇", reply_markup=InlineKeyboardMarkup(keyboard))
 
-
-# 🟣 Handle Board Selection
 async def board_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -78,9 +62,7 @@ async def board_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(f"⚠️ No standards found for {board}.")
         return
 
-    keyboard = [
-        [InlineKeyboardButton(std, callback_data=f"{board}|{std}")] for std in standards
-    ]
+    keyboard = [[InlineKeyboardButton(std, callback_data=f"{board}|{std}")] for std in standards]
     keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_to_boards")])
 
     await query.edit_message_text(
@@ -89,8 +71,6 @@ async def board_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-
-# 🧾 Handle Standard Selection — Show Subjects/Papers
 async def standard_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -117,27 +97,20 @@ async def standard_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-
-# 🏠 Go Back to Board Selection
 async def go_back(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     await start(update, context)
 
-
-# 🚀 Main Function
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
-
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(board_selected, pattern="^(?!.*\\|)(?!refresh$)(?!back_to_boards$).+"))
     app.add_handler(CallbackQueryHandler(standard_selected, pattern="^(.*)\|(.*)$"))
     app.add_handler(CallbackQueryHandler(go_back, pattern="^back_to_boards$"))
     app.add_handler(CallbackQueryHandler(board_selected, pattern="^refresh$"))
-
     print("🤖 Bot is running...")
     app.run_polling()
-
 
 if __name__ == "__main__":
     main()
