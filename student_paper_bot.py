@@ -5,10 +5,10 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
 
 # Get your Telegram bot token from environment (set in Railway Variables)
-BOT_TOKEN = os.getenv("8321057096:AAHClJi3S-hmrQXhGdRRJgm7cyYUHUDBc2I")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 # Google Sheet JSON URL (example)
-SHEET_URL = "https://opensheet.elk.sh/1LXevFkVfBGzLrBttaMPyQ-6voypCyYogQmE58JNn8w0/Sheet1"
+SHEET_URL = "https://opensheet.elk.sh/your_sheet_id/Sheet1"
 
 # Optional: cache data for 5 minutes to reduce repeated fetches
 cached_data = None
