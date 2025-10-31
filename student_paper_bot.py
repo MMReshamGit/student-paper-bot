@@ -1,115 +1,79 @@
-import os
-import requests
-import time
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+import requests
 
-BOT_TOKEN = os.getenv("8321057096:AAHClJi3S-hmrQXhGdRRJgm7cyYUHUDBc2I")
-SHEET_URL = "https://opensheet.elk.sh/1LXevFkVfBGzLrBttaMPyQ-6voypCyYogQmE58JNn8w0/Sheet1"  # Replace with your link
+# === REPLACE THESE TWO VALUES ===
+TOKEN = "8321057096:AAHClJi3S-hmrQXhGdRRJgm7cyYUHUDBc2I"
+JSON_URL = "https://opensheet.elk.sh/1LXevFkVfBGzLrBttaMPyQ-6voypCyYogQmE58JNn8w0/Sheet1"
 
-cached_data = None
-last_fetch_time = 0
-CACHE_DURATION = 300  # 5 minutes
+# Load data from Google Sheet JSON
+def load_data():
+    response = requests.get(JSON_URL)
+    return response.json()
 
-def get_sheet_data(force_refresh=False):
-    global cached_data, last_fetch_time
-    current_time = time.time()
-
-    if not force_refresh and cached_data and current_time - last_fetch_time < CACHE_DURATION:
-        return cached_data
-
-    try:
-        response = requests.get(SHEET_URL)
-        if response.status_code == 200:
-            cached_data = response.json()
-            last_fetch_time = current_time
-            print("✅ Data fetched successfully.")
-            return cached_data
-        else:
-            print(f"⚠️ Error: {response.status_code}")
-            return cached_data or []
-    except Exception as e:
-        print("⚠️ Error:", e)
-        return cached_data or []
-
+# Start Command
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    data = get_sheet_data()
-    boards = sorted({row["Board"] for row in data if row.get("Board")})
+    keyboard = [
+        [InlineKeyboardButton("GSEB", callback_data='board_GSEB')],
+        [InlineKeyboardButton("CBSE", callback_data='board_CBSE')]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text("📘 Please select your Board:", reply_markup=reply_markup)
 
-    if not boards:
-        await update.message.reply_text("⚠️ No Boards found.")
-        return
-
-    keyboard = [[InlineKeyboardButton(board, callback_data=board)] for board in boards]
-    keyboard.append([InlineKeyboardButton("🔁 Refresh Data", callback_data="refresh")])
-
-    await update.message.reply_text("📚 Select your Board 👇", reply_markup=InlineKeyboardMarkup(keyboard))
-
-async def board_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# Handle Board Selection
+async def board_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    board = query.data
+    board = query.data.split('_')[1]
+    context.user_data['board'] = board
 
-    if board == "refresh":
-        get_sheet_data(force_refresh=True)
-        await query.edit_message_text("🔄 Data refreshed successfully! Use /start again.")
-        return
+    data = load_data()
+    standards = sorted(set([row['Standard'] for row in data if row['Board'] == board]))
+    keyboard = [[InlineKeyboardButton(std, callback_data=f'std_{std}')] for std in standards]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(f"✅ You selected *{board}*\n\nNow select your Standard:",
+                                  reply_markup=reply_markup, parse_mode="Markdown")
 
-    data = get_sheet_data()
-    standards = sorted({row["Standard"] for row in data if row["Board"] == board})
-
-    if not standards:
-        await query.edit_message_text(f"⚠️ No standards found for {board}.")
-        return
-
-    keyboard = [[InlineKeyboardButton(std, callback_data=f"{board}|{std}")] for std in standards]
-    keyboard.append([InlineKeyboardButton("⬅️ Back", callback_data="back_to_boards")])
-
-    await query.edit_message_text(
-        text=f"🏫 Select Standard for *{board}:*",
-        parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
-
-async def standard_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# Handle Standard Selection
+async def standard_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    board, std = query.data.split("|")
+    standard = query.data.split('_')[1]
+    board = context.user_data['board']
+    context.user_data['standard'] = standard
 
-    data = get_sheet_data()
-    filtered = [row for row in data if row["Board"] == board and row["Standard"] == std]
+    data = load_data()
+    subjects = sorted(set([row['Subject'] for row in data if row['Board'] == board and row['Standard'] == standard]))
+    keyboard = [[InlineKeyboardButton(sub, callback_data=f'sub_{sub}')] for sub in subjects]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(f"📚 You selected *{board} - Std {standard}*\nSelect a subject:",
+                                  reply_markup=reply_markup, parse_mode="Markdown")
 
-    if not filtered:
-        await query.edit_message_text("⚠️ No papers found for this selection.")
-        return
-
-    text = f"📘 *Papers for {board} - Std {std}:*\n\n"
-    for row in filtered:
-        subject = row.get("Subject", "Unnamed Subject")
-        link = row.get("Link", "")
-        text += f"• [{subject}]({link})\n"
-
-    keyboard = [[InlineKeyboardButton("⬅️ Back", callback_data=board)]]
-    await query.edit_message_text(
-        text=text,
-        parse_mode="Markdown",
-        disable_web_page_preview=True,
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
-
-async def go_back(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# Handle Subject Selection
+async def subject_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await start(update, context)
+    subject = query.data.split('_', 1)[1]
+    board = context.user_data['board']
+    standard = context.user_data['standard']
 
+    data = load_data()
+    papers = [row for row in data if row['Board'] == board and row['Standard'] == standard and row['Subject'] == subject]
+
+    keyboard = [
+        [InlineKeyboardButton(row['PaperName'], url=row['Link'])] for row in papers
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(f"📝 Papers for *{subject} ({board} Std {standard})*:",
+                                  reply_markup=reply_markup, parse_mode="Markdown")
+
+# Run the Bot
 def main():
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(board_selected, pattern="^(?!.*\\|)(?!refresh$)(?!back_to_boards$).+"))
-    app.add_handler(CallbackQueryHandler(standard_selected, pattern="^(.*)\|(.*)$"))
-    app.add_handler(CallbackQueryHandler(go_back, pattern="^back_to_boards$"))
-    app.add_handler(CallbackQueryHandler(board_selected, pattern="^refresh$"))
-    print("🤖 Bot is running...")
+    app.add_handler(CallbackQueryHandler(board_selection, pattern='^board_'))
+    app.add_handler(CallbackQueryHandler(standard_selection, pattern='^std_'))
+    app.add_handler(CallbackQueryHandler(subject_selection, pattern='^sub_'))
     app.run_polling()
 
 if __name__ == "__main__":
